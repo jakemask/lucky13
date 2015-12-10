@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/rpc"
+	"sort"
 	"sync"
 )
 
@@ -23,13 +24,48 @@ func main() {
 		log.Fatal("dialing error:", err)
 	}
 
-	var reply int
-	if err := client.Call("Client.Send", []byte("lo"), &reply); err != nil {
-		log.Fatal("client error:", err)
+	m2 := true //false should be slower
+
+	for i := 0; i < 128; i++ {
+		var reply int
+
+		var msg []byte
+		var length int
+		if m2 {
+			msg = []byte("12345678901234567890123456789012")
+			length = 256
+		} else {
+			msg = []byte("")
+			length = 287
+		}
+		for j := 0; j < length; j++ {
+			msg = append(msg, '\xff')
+		}
+		if !m2 {
+			msg = append(msg, '\x00')
+		}
+		log.Println(len(msg))
+		if err := client.Call("Client.Send", msg, &reply); err != nil {
+			log.Fatal("client error:", err)
+		}
 	}
 
 	log.Println("waiting for connections")
 	wg.Wait()
+
+	sum := int64(0)
+	var ns []int
+	for _, v := range proxy.Times {
+		sum += v.Nanoseconds()
+		ns = append(ns, int(v.Nanoseconds()))
+	}
+	avg := sum / int64(len(proxy.Times))
+	sort.Ints(ns)
+	median := ns[len(ns)/2]
+
+	log.Println("Took an average of ", float64(avg)/1000, " microseconds")
+	log.Println("Took a median of ", float64(median)/1000, " microseconds")
+
 }
 
 func serve(wg *sync.WaitGroup) {
@@ -63,7 +99,7 @@ func handleRequest(wg *sync.WaitGroup, client net.Conn) {
 		log.Fatal("couldn't connect to server:", err)
 	}
 
-	proxy.Run(client, server, proxy.VerboseMITM, proxy.VerboseMITM)
+	proxy.Run(client, server, proxy.ClientMITM, proxy.ServerMITM)
 
 	wg.Done()
 }
