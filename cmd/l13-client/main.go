@@ -14,7 +14,7 @@ import (
 type Client int
 
 func (t *Client) Send(msg []byte, reply *int) error {
-	log.Println(hex.Dump(msg))
+	log.Println("Message:\n" + hex.Dump(msg))
 
 	config := tls.Config{
 		InsecureSkipVerify: true,
@@ -27,6 +27,7 @@ func (t *Client) Send(msg []byte, reply *int) error {
 	if err != nil {
 		log.Fatal("proxy connect error:", err)
 	}
+	defer log.Println("closing")
 	defer conn.Close()
 
 	if _, err := conn.Write(msg); err != nil {

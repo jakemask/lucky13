@@ -7,16 +7,17 @@ import (
 	"time"
 )
 
-type MITM func(tlsparse.TLSHeader, []byte, string) (tlsparse.TLSHeader, []byte)
+type MITM func(time.Time, tlsparse.TLSHeader, []byte, string) (tlsparse.TLSHeader, []byte)
 
-func NilMITM(h tlsparse.TLSHeader, x []byte, _ string) (tlsparse.TLSHeader, []byte) {
+func NilMITM(_ time.Time, h tlsparse.TLSHeader, x []byte, _ string) (tlsparse.TLSHeader, []byte) {
 	return h, x
 }
 
 var _ MITM = NilMITM
 
-func VerboseMITM(hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
+func VerboseMITM(t time.Time, hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
 
+	log.Printf("Arrived at %v", t)
 	log.Printf("Header(%s): %x", desc, hdr)
 	log.Println("Message:\n" + hex.Dump(msg))
 
@@ -31,18 +32,18 @@ var out bool
 
 var Times []time.Duration
 
-func ClientMITM(hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
+func ClientMITM(t time.Time, hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
 
 	if hdr.ContentType == 0x17 {
 		// Application Message
-		log.Printf("Header(%s): %x", desc, hdr)
-		log.Println("Message:\n" + hex.Dump(msg))
+		//log.Printf("Header(%s): %x", desc, hdr)
+		//log.Println("Message:\n" + hex.Dump(msg))
 
-		msg = msg[0 : 288+16]
-		hdr.Length = 288 + 16
+		//msg = msg[0 : 288+16]
+		//hdr.Length = 288 + 16
 
-		start = time.Now()
 		out = true
+		start = time.Now()
 	}
 
 	return hdr, msg
@@ -50,17 +51,17 @@ func ClientMITM(hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHe
 
 var _ MITM = ClientMITM
 
-func ServerMITM(hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
-	duration := time.Since(start)
+func ServerMITM(t time.Time, hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
 	if hdr.ContentType == 0x15 {
 		if out {
+			duration := t.Sub(start)
 			Times = append(Times, duration)
-			log.Println("Duration: " + duration.String())
+			//log.Println("Duration: " + duration.String())
 			out = false
 		}
 		// Alert Message
-		log.Printf("Header(%s): %x", desc, hdr)
-		log.Println("Message:\n" + hex.Dump(msg))
+		//log.Printf("Header(%s): %x", desc, hdr)
+		//log.Println("Message:\n" + hex.Dump(msg))
 
 	}
 	return hdr, msg

@@ -24,33 +24,26 @@ func main() {
 		log.Fatal("dialing error:", err)
 	}
 
-	m2 := true //false should be slower
+	//m2 := true //false should be slower
 
+	msg := []byte("12345678901234567890")
+
+	test(client, &wg, msg)
+	msg = append(msg, msg...)
+	test(client, &wg, msg)
+}
+
+func test(client *rpc.Client, wg *sync.WaitGroup, msg []byte) {
 	for i := 0; i < 128; i++ {
 		var reply int
 
-		var msg []byte
-		var length int
-		if m2 {
-			msg = []byte("12345678901234567890123456789012")
-			length = 256
-		} else {
-			msg = []byte("")
-			length = 287
-		}
-		for j := 0; j < length; j++ {
-			msg = append(msg, '\xff')
-		}
-		if !m2 {
-			msg = append(msg, '\x00')
-		}
-		log.Println(len(msg))
+		wg.Add(1)
 		if err := client.Call("Client.Send", msg, &reply); err != nil {
 			log.Fatal("client error:", err)
 		}
 	}
 
-	log.Println("waiting for connections")
+	log.Println("waiting for connections", wg)
 	wg.Wait()
 
 	sum := int64(0)
@@ -65,6 +58,8 @@ func main() {
 
 	log.Println("Took an average of ", float64(avg)/1000, " microseconds")
 	log.Println("Took a median of ", float64(median)/1000, " microseconds")
+
+	proxy.Times = nil
 
 }
 
@@ -84,22 +79,20 @@ func serve(wg *sync.WaitGroup) {
 			log.Fatal("accept error:", err)
 		}
 
-		wg.Add(1)
-
 		// Handle connections in a new goroutine.
-		go handleRequest(wg, conn)
+		handleRequest(conn)
+
+		wg.Done()
 	}
 
 }
 
 // Handles incoming requests.
-func handleRequest(wg *sync.WaitGroup, client net.Conn) {
+func handleRequest(client net.Conn) {
 	server, err := net.Dial("tcp", defaults.SERVER_HOST+":"+defaults.SERVER_PORT)
 	if err != nil {
 		log.Fatal("couldn't connect to server:", err)
 	}
 
 	proxy.Run(client, server, proxy.ClientMITM, proxy.ServerMITM)
-
-	wg.Done()
 }

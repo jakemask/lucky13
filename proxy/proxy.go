@@ -2,17 +2,17 @@ package proxy
 
 import (
 	"github.com/jakemask/lucky13/tlsparse"
-	"io"
 	"log"
 	"net"
 	"sync"
-)
-
-const (
-	DEBUG = false
+	"time"
 )
 
 func Run(client, server net.Conn, mitmClient, mitmServer MITM) {
+	//defer log.Println("Closing proxy connections")
+	defer client.Close()
+	defer server.Close()
+
 	var wg sync.WaitGroup
 
 	wg.Add(2)
@@ -21,10 +21,6 @@ func Run(client, server net.Conn, mitmClient, mitmServer MITM) {
 
 	wg.Wait()
 
-	log.Println("Closing proxy connections")
-
-	client.Close()
-	server.Close()
 }
 
 func pipe(wg *sync.WaitGroup, src, dst net.Conn, mitm MITM, desc string) {
@@ -36,14 +32,12 @@ func pipe(wg *sync.WaitGroup, src, dst net.Conn, mitm MITM, desc string) {
 	for {
 		// read TLS record header
 		hdrLen, err := src.Read(rawHdr)
+		arrival := time.Now()
 		if hdrLen != 5 {
-			if err != io.EOF {
-				log.Println("bad length: ", err)
+			if hdrLen != 0 {
+				log.Println("bad length: ", hdrLen, err)
 			}
 			return
-		}
-		if DEBUG {
-			log.Println(desc, "reading header")
 		}
 
 		tlsHdr := tlsparse.Header(rawHdr)
@@ -60,21 +54,14 @@ func pipe(wg *sync.WaitGroup, src, dst net.Conn, mitm MITM, desc string) {
 			return
 		}
 
-		if DEBUG {
-			log.Println(desc, "reading record")
-		}
-
 		// modify the TLS record
-		newHdr, newMsg := mitm(tlsHdr, rawMsg[:msgLen], desc)
+		newHdr, newMsg := mitm(arrival, tlsHdr, rawMsg[:msgLen], desc)
 
 		// send the new TLS record
-		if _, err = dst.Write(append(newHdr.Bytes(), newMsg...)); err != nil {
-			log.Println("error writing: ", err)
+		_, err = dst.Write(append(newHdr.Bytes(), newMsg...))
+		if err != nil {
+			//log.Println("error writing: ", err)
 			return
-		}
-
-		if DEBUG {
-			log.Println(desc, "wrote record")
 		}
 
 		if read_err != nil {

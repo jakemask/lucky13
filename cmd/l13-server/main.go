@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/tls"
-	"encoding/hex"
+	//"encoding/hex"
 	"github.com/jakemask/lucky13/defaults"
 	"log"
 	"net"
@@ -35,7 +35,7 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	log.Println("Recieved connection")
+	//log.Println("Recieved connection")
 
 	tlscon, ok := conn.(*tls.Conn)
 	if !ok {
@@ -45,7 +45,7 @@ func handleConnection(conn net.Conn) {
 	if err := tlscon.Handshake(); err != nil {
 		log.Fatal("handshake error:", err)
 	}
-	log.Printf("%#v", tlscon.ConnectionState())
+	//log.Printf("%#v", tlscon.ConnectionState())
 
 	buf := make([]byte, 1)
 	var msg []byte
@@ -56,10 +56,10 @@ func handleConnection(conn net.Conn) {
 		msg = append(msg, buf[:n]...)
 
 		if err != nil {
-			log.Println(err)
+			//log.Println(err)
 			break
 		}
 
 	}
-	log.Println("Message:\n" + hex.Dump(msg))
+	//log.Println("Message:\n" + hex.Dump(msg))
 }
