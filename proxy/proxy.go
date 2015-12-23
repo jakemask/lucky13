@@ -1,72 +1,134 @@
 package proxy
 
 import (
-	"github.com/jakemask/lucky13/tlsparse"
+	"crypto/tls"
+	"encoding/hex"
 	"log"
 	"net"
-	"sync"
 	"time"
 )
 
-func Run(client, server net.Conn, mitmClient, mitmServer MITM) {
-	//defer log.Println("Closing proxy connections")
-	defer client.Close()
-	defer server.Close()
+const (
+	DEBUG = false
+)
 
-	var wg sync.WaitGroup
-
-	wg.Add(2)
-	go pipe(&wg, client, server, mitmClient, "client -> server")
-	go pipe(&wg, server, client, mitmServer, "server -> client")
-
-	wg.Wait()
-
+type Proxy struct {
+	pairs    chan ConnPair
+	listener net.Listener
+	config   Config
 }
 
-func pipe(wg *sync.WaitGroup, src, dst net.Conn, mitm MITM, desc string) {
-	defer wg.Done()
+type Config struct {
+	ProxyPort  string
+	ServerHost string
+	ServerPort string
+}
 
-	rawHdr := make([]byte, 5)
-	rawMsg := make([]byte, 0xffff) // 64k buffer
+func Serve(config Config) *Proxy {
+	// Listen for incoming connections.
+	l, err := net.Listen("tcp", ":"+config.ProxyPort)
+	if err != nil {
+		log.Fatal("listen error: ", err)
+	}
+
+	proxy := &Proxy{
+		pairs:    make(chan ConnPair),
+		listener: l,
+		config:   config,
+	}
+
+	log.Println("Listening on :" + config.ProxyPort)
+	go proxy.listen()
+
+	return proxy
+}
+
+func (self *Proxy) listen() {
+	defer self.listener.Close()
 
 	for {
-		// read TLS record header
-		hdrLen, err := src.Read(rawHdr)
-		arrival := time.Now()
-		if hdrLen != 5 {
-			if hdrLen != 0 {
-				log.Println("bad length: ", hdrLen, err)
-			}
-			return
-		}
-
-		tlsHdr := tlsparse.Header(rawHdr)
-
+		// Listen for an incoming connection.
+		conn, err := self.listener.Accept()
 		if err != nil {
-			log.Println("error reading:", err)
-			return
+			log.Fatal("accept error:", err)
 		}
 
-		// read TLS record
-		msgLen, read_err := src.Read(rawMsg[:tlsHdr.Length])
-		if msgLen != int(tlsHdr.Length) {
-			log.Println("bad length: ", err)
-			return
+		if DEBUG {
+			log.Printf("recieved connection %v", conn)
 		}
 
-		// modify the TLS record
-		newHdr, newMsg := mitm(arrival, tlsHdr, rawMsg[:msgLen], desc)
-
-		// send the new TLS record
-		_, err = dst.Write(append(newHdr.Bytes(), newMsg...))
+		// connect to remote server
+		server, err := net.Dial("tcp", self.config.ServerHost+":"+self.config.ServerPort)
 		if err != nil {
-			//log.Println("error writing: ", err)
-			return
+			log.Fatal("couldn't connect to server:", err)
 		}
 
-		if read_err != nil {
-			log.Println("read error: ", read_err)
-			return
+		if DEBUG {
+			log.Printf("connected to server %v", server)
+		}
+
+		// proxy the handshake then hand off the connection
+		pair := ConnPair{conn, server}
+		pair.Handshake()
+
+		if DEBUG {
+			log.Printf("handshake complete")
+		}
+
+		self.pairs <- pair
+
+		if DEBUG {
+			log.Printf("pair retrieved, looping")
 		}
 	}
+}
+
+func (self *Proxy) Send(msg []byte, mitm MITM) time.Duration {
+	log.Println("Message:\n" + hex.Dump(msg))
+
+	config := tls.Config{
+		InsecureSkipVerify: true,
+		CipherSuites: []uint16{
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+		},
+	}
+	conn, err := tls.Dial("tcp", "localhost:"+self.config.ProxyPort, &config)
+	if err != nil {
+		log.Fatal("proxy connect error:", err)
+	}
+	defer conn.Close()
+
+	if DEBUG {
+		log.Printf("made tls connection")
+	}
+
+	pair := <-self.pairs
+	defer pair.Close()
+
+	if DEBUG {
+		log.Printf("retrieved pair %v", pair)
+	}
+
+	if _, err := conn.Write(msg); err != nil {
+		log.Printf("message error: ", err)
+	}
+
+	if DEBUG {
+		log.Printf("tls message sent")
+	}
+
+	start := pair.Forward(mitm)
+
+	if DEBUG {
+		log.Printf("message forwarded at %v", start)
+	}
+
+	end := pair.Receive(NilMITM) //TODO actually check that it's an error?
+
+	if DEBUG {
+		log.Printf("reply received at %v", end)
+	}
+
+	return end.Sub(start)
 }

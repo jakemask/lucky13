@@ -4,28 +4,26 @@ import (
 	"encoding/hex"
 	"github.com/jakemask/lucky13/tlsparse"
 	"log"
-	"time"
 )
 
-type MITM func(time.Time, tlsparse.TLSHeader, []byte, string) (tlsparse.TLSHeader, []byte)
+type MITM func(*tlsparse.Record) *tlsparse.Record
 
-func NilMITM(_ time.Time, h tlsparse.TLSHeader, x []byte, _ string) (tlsparse.TLSHeader, []byte) {
-	return h, x
+func NilMITM(record *tlsparse.Record) *tlsparse.Record {
+	return record
 }
 
 var _ MITM = NilMITM
 
-func VerboseMITM(t time.Time, hdr tlsparse.TLSHeader, msg []byte, desc string) (tlsparse.TLSHeader, []byte) {
+func VerboseMITM(record *tlsparse.Record) *tlsparse.Record {
+	log.Printf("Header: %x", record.Header)
+	log.Println("Message:\n" + hex.Dump(record.Message))
 
-	log.Printf("Arrived at %v", t)
-	log.Printf("Header(%s): %x", desc, hdr)
-	log.Println("Message:\n" + hex.Dump(msg))
-
-	return hdr, msg
+	return record
 }
 
 var _ MITM = VerboseMITM
 
+/*
 // TODO this is super janky; there must be a better way
 var start time.Time
 var out bool
@@ -66,3 +64,4 @@ func ServerMITM(t time.Time, hdr tlsparse.TLSHeader, msg []byte, desc string) (t
 	}
 	return hdr, msg
 }
+*/
