@@ -84,7 +84,9 @@ func (self *Proxy) listen() {
 }
 
 func (self *Proxy) Send(msg []byte, mitm MITM) time.Duration {
-	log.Println("Message:\n" + hex.Dump(msg))
+	if DEBUG {
+		log.Println("Message:\n" + hex.Dump(msg))
+	}
 
 	config := tls.Config{
 		InsecureSkipVerify: true,
